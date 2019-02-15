@@ -108,21 +108,6 @@ class Calibrator {
 
   void add_fiducial(const Timestamp& ts, const SE3& world_from_camera) {
     const auto time_of_validity = to_time_point(ts);
-    if (!got_camera_) {
-      auto xp0 = estimation::jet_filter::JetFilter::reasonable_initial_state();
-
-      xp0.x.T_body_from_world = world_from_camera.inverse();
-      xp0.time_of_validity = time_of_validity;
-      jf_.reset(xp0);
-
-      earliest_camera_time_ = time_of_validity;
-    }
-    // std::cout << "cam: " << uint64_t(ts) << std::endl;
-    if (estimation::to_seconds(time_of_validity - earliest_camera_time_) > 25.0) {
-      return;
-    }
-
-    got_camera_ = true;
 
     estimation::jet_filter::FiducialMeasurement fiducial_meas;
     fiducial_meas.T_fiducial_from_camera = world_from_camera;
@@ -257,12 +242,26 @@ class Calibrator {
     std::vector<estimation::jet_filter::State> est_states;
     geo_->clear();
 
+    const auto timestep_geo = view->add_primitive<viewer::SimpleGeometry>();
+
     const auto first_t = fiducial_meas_.front().second;
     for (const auto& fiducial_meas : fiducial_meas_) {
       const estimation::TimePoint t = fiducial_meas.second;
       if (t < first_t + estimation::to_duration(0.5)) {
         continue;
       }
+
+      if (!got_camera_) {
+        auto xp0 = estimation::jet_filter::JetFilter::reasonable_initial_state();
+
+        xp0.x.T_body_from_world = fiducial_meas.first.T_fiducial_from_camera.inverse();
+        xp0.time_of_validity = t;
+        jf_.reset(xp0);
+        got_camera_ = true;
+
+        earliest_camera_time_ = t;
+      }
+
       jf_.measure_fiducial(fiducial_meas.first, t);
       jet_opt_.measure_fiducial(fiducial_meas.first, t);
 
@@ -272,14 +271,21 @@ class Calibrator {
       geo_->add_axes({fiducial_meas.first.T_fiducial_from_camera, 0.001, 3.0});
     }
 
-    for (const auto& accel_meas : accel_meas_) {
+    // for (const auto& accel_meas : accel_meas_) {
+    for (std::size_t k = 0; k < accel_meas_.size(); ++k) {
+      const auto& accel_meas = accel_meas_.at(k);
+      const auto& gyro_meas = gyro_meas_.at(k);
+
       const estimation::TimePoint t = accel_meas.second;
-      if (t <= (first_t + estimation::to_duration(3.0))) {
+      if (t <= (first_t + estimation::to_duration(2.0))) {
         std::cout << "Skipping" << std::endl;
         continue;
       }
-      // jf_.measure_imu(accel_meas.first, t);
-      // jet_opt_.measure_imu(accel_meas.first, t);
+      jf_.measure_imu(accel_meas.first, t);
+      jet_opt_.measure_imu(accel_meas.first, t);
+
+      // jf_.measure_gyro(gyro_meas.first, t + estimation::to_duration(0.000001));
+      // jet_opt_.measure_gyro(gyro_meas.first, t + estimation::to_duration(0.000001));
     }
 
     estimation::TimePoint prev_time;
@@ -327,26 +333,56 @@ class Calibrator {
       const jcc::Vec3 g_imu = imu_from_vehicle.so3() * T_world_from_body.so3().inverse() * g_world;
 
       std::cout << "\n" << std::endl;
-      // std::cout << "g_body:" << g_vehicle_frame.transpose() << std::endl;
-      std::cout << "g_imu:      " << g_imu.transpose() << std::endl;
-      // std::cout << "accel     : " << accel_g_subtracted_vehicle.transpose() << std::endl;
-      std::cout << "meas accel: " << meas_accel_imu_t.transpose() << std::endl;
-      std::cout << "exp accel:  " << expected_accel_imu.transpose() << std::endl;
+      std::cout << "Accelerometer: " << std::endl;
+      std::cout << "\tg_imu:      " << g_imu.transpose() << std::endl;
+      std::cout << "\tmeas accel: " << meas_accel_imu_t.transpose() << std::endl;
+      std::cout << "\texp accel:  " << expected_accel_imu.transpose() << std::endl;
 
-      std::cout << "meas sp f: " << (meas_accel_imu_t - g_imu).transpose() << std::endl;
-      std::cout << "exp sp f: " << (expected_accel_imu - g_imu).transpose() << std::endl;
+      std::cout << "Specific Force:" << std::endl;
+      std::cout << "\tmeas sp f: " << (meas_accel_imu_t - g_imu).transpose() << std::endl;
+      std::cout << "\texp sp f: " << (expected_accel_imu - g_imu).transpose() << std::endl;
 
-      std::cout << "meas gyro:  " << meas_gyro_imu_t.transpose() << std::endl;
-      std::cout << "exp gyro:   " << expected_gyro_imu.transpose() << std::endl;
+      std::cout << "States:       " << std::endl;
+      std::cout << "\taccel_bias: " << state.accel_bias.transpose() << std::endl;
+      std::cout << "\teps_ddot:   " << state.eps_ddot.transpose() << std::endl;
+      std::cout << "\teps_dot:    " << state.eps_dot.transpose() << std::endl;
+      std::cout << "\tx:          " << T_world_from_body.translation().transpose() << std::endl;
 
-      std::cout << "accel_bias: " << state.accel_bias.transpose() << std::endl;
-      std::cout << "eps_ddot:   " << state.eps_ddot.transpose() << std::endl;
-      std::cout << "eps_dot:    " << state.eps_dot.transpose() << std::endl;
+      std::cout << "Gyroscope:    " << std::endl;
+      std::cout << "\tmeas gyro:  " << meas_gyro_imu_t.transpose() << std::endl;
+      std::cout << "\texp gyro:   " << expected_gyro_imu.transpose() << std::endl;
 
       geo_->add_axes({T_world_from_body, 0.01, 1.0, true});
-      geo_->add_ellipsoid({geometry::shapes::Ellipse{P_llt.matrixU(), T_world_from_body.translation()}});
+      // geo_->add_ellipsoid({geometry::shapes::Ellipse{P_llt.matrixU(), T_world_from_body.translation()}});
+      const SE3 T_imu_from_vehicle = jf_.parameters().T_imu_from_vehicle;
+
+      const jcc::Vec3 velocity_world_frame = state.eps_dot.head<3>();
+      timestep_geo->add_line({T_world_from_body.translation(), T_world_from_body.translation() + velocity_world_frame,
+                              jcc::Vec4(0.7, 0.3, 0.3, 0.8)});
+
+      const jcc::Vec3 accel_world_frame = state.eps_ddot.head<3>();
+      timestep_geo->add_line({T_world_from_body.translation(), T_world_from_body.translation() + accel_world_frame,
+                              jcc::Vec4(0.3, 0.7, 0.7, 0.5)});
+
+      const jcc::Vec3 meas_sp_f_world =
+          (T_world_from_body * T_imu_from_vehicle.inverse()).so3() * (meas_accel_imu_t - g_imu);
+      timestep_geo->add_line({T_world_from_body.translation(),
+                              T_world_from_body.translation() + meas_sp_f_world,
+                              jcc::Vec4(0.3, 0.7, 0.7, 0.8)});
+
+      std::cout << "Meas sp f w; " << meas_sp_f_world.transpose() << std::endl;
+
+      jcc::Vec3 prev_pos = T_world_from_body.translation();
+      for (double added_t = 0.01; added_t < 0.2; added_t += 0.01) {
+        const auto predicted_state = jf_.predict(t + estimation::to_duration(added_t));
+        const jcc::Vec3 pos = predicted_state.T_body_from_world.inverse().translation();
+        timestep_geo->add_line({prev_pos, pos});
+        timestep_geo->add_sphere({pos, 0.001});
+        prev_pos = pos;
+      }
 
       geo_->flush();
+      timestep_geo->flip();
       view->spin_until_step();
     }
     return est_states;
@@ -404,9 +440,10 @@ void go() {
   const std::vector<std::string> channel_names = {"imu", "fiducial_detection_channel", "camera_image_channel"};
 
   // const std::string path = "/jet/logs/calibration-log-jan26-1";
-  const std::string path = "/jet/logs/calibration-log-jan31-1";
+  // const std::string path = "/jet/logs/calibration-log-jan31-1";
   // const std::string path = "/jet/logs/calibration-log-feb9-1";
   // const std::string path = "/jet/logs/calibration-log-feb9-2";
+  const std::string path = "/jet/logs/calibration-log-feb14-1";
 
   Calibrator calibrator;
   jet::LogReader reader(path, channel_names);
