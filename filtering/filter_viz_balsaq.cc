@@ -15,7 +15,7 @@
 
 // %deps(simple_geometry)
 // %deps(window_3d)
-//%deps(fit_ellipse)
+// %deps(fit_ellipse)
 #include "third_party/experiments/estimation/time_point.hh"
 #include "third_party/experiments/geometry/shapes/fit_ellipse.hh"
 #include "third_party/experiments/viewer/primitives/simple_geometry.hh"
@@ -51,10 +51,10 @@ void FilterVizBq::init(int argc, char* argv[]) {
   imu_sub_ = make_subscriber("imu");
 
   std::cout << "Subscribing Fiducial" << std::endl;
-  fiducial_sub_ = make_subscriber("fiducial_detection_channel");
+  // fiducial_sub_ = make_subscriber("fiducial_detection_channel");
 
   std::cout << "Subscribing pose" << std::endl;
-  pose_sub_ = make_subscriber("pose");
+  // pose_sub_ = make_subscriber("pose");
 
   std::cout << "Subscribing servos" << std::endl;
   servo_sub_ = make_subscriber("servo_command_channel");
@@ -71,7 +71,7 @@ void FilterVizBq::draw_sensors() {
 
   ImuMessage imu_msg;
   FiducialDetectionMessage detection_msg;
-  if (fiducial_sub_->read(detection_msg, 1)) {
+  if (false && fiducial_sub_->read(detection_msg, 1)) {
     const SE3 fiducial_from_camera = detection_msg.fiducial_from_camera();
     const SE3 fiducial_from_body = fiducial_from_camera * camera_from_body_;
 
@@ -189,6 +189,8 @@ void FilterVizBq::loop() {
   draw_sensors();
   draw_pose();
   draw_servos();
+
+  geo_->flip();
 }
 
 void FilterVizBq::shutdown() {
