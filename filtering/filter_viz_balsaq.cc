@@ -89,17 +89,51 @@ void FilterVizBq::draw_sensors() {
     fiducial_history_.push_back(fiducial_from_camera);
   }
 
+  MatNd<3, 3> L;
+  {  // clang-format off
+    L.row(0) << 9.67735, 0, 0;
+    L.row(1) << 0.136597, 9.59653, 0;
+    L.row(2) << -0.216635, 0.00400047, 9.64812;
+    // clang-format on
+  }
+  const jcc::Vec3 offset(0.0562102, 0.42847, -0.119841);
+  const geometry::shapes::Ellipse ellipse{L, offset};
+
   while (imu_sub_->read(imu_msg, 1)) {
     const jcc::Vec3 accel_mpss(imu_msg.accel_mpss_x, imu_msg.accel_mpss_y, imu_msg.accel_mpss_z);
     const jcc::Vec3 mag_utesla(imu_msg.mag_utesla_x, imu_msg.mag_utesla_y, imu_msg.mag_utesla_z);
     const jcc::Vec3 gyro_radps(imu_msg.gyro_radps_x, imu_msg.gyro_radps_y, imu_msg.gyro_radps_z);
 
-    accel_history_.push_back({accel_mpss, gyro_radps, mag_utesla});
+    accel_history_.push_back(
+        {geometry::shapes::deform_ellipse_to_unit_sphere(accel_mpss, ellipse) * 9.81, gyro_radps, mag_utesla});
     mag_utesla_.push_back({mag_utesla});
+
+    std::cout << accel_mpss.transpose() << ", " << accel_mpss.norm() << std::endl;
   }
 
-  while (accel_history_.size() > 15u) {
+  while (accel_history_.size() > 25000u) {
     accel_history_.pop_front();
+  }
+
+  std::vector<jcc::Vec3> accels;
+  accels.reserve(accel_history_.size());
+  for (const auto& meas : accel_history_) {
+    accels.push_back(meas.accel_mpss);
+    geo_->add_point({meas.accel_mpss, jcc::Vec4(0.1, 0.7, 0.3, 0.9)});
+  }
+  if (accel_history_.size() > 2500u) {
+    const auto visitor = [this, &view](const geometry::shapes::EllipseFit& fit) {
+      geo_->add_ellipsoid({fit.ellipse, jcc::Vec4(0.4, 0.6, 0.4, 0.7), 2.0});
+      geo_->flush();
+    };
+    // std::cout << "Optimizing" << std::endl;
+    const auto result = geometry::shapes::fit_ellipse(accels);
+    geo_->add_ellipsoid({result.ellipse, jcc::Vec4(0.2, 0.9, 0.2, 1.0), 5.0});
+
+    std::cerr << "chol" << std::endl;
+    std::cerr << result.ellipse.cholesky_factor << std::endl;
+    std::cerr << "p0" << std::endl;
+    std::cerr << result.ellipse.p0.transpose() << std::endl;
   }
 
   while (fiducial_history_.size() > 10u) {

@@ -271,7 +271,7 @@ class Calibrator {
         xp0.x.x_world = world_from_camera.translation();
         xp0.x.R_world_from_body = world_from_camera.so3();
 
-        xp0.x.accel_bias = jcc::Vec3(-1.806, 0.133, -0.375);
+        // xp0.x.accel_bias = jcc::Vec3(-1.806, 0.133, -0.375);
 
         xp0.time_of_validity = t;
         jf_.reset(xp0);
@@ -295,12 +295,28 @@ class Calibrator {
       const auto& gyro_meas = gyro_meas_.at(k);
 
       const estimation::TimePoint t = accel_meas.second;
-      if (t <= (first_t + estimation::to_duration(2.0))) {
+      if (t <= (first_t + estimation::to_duration(3.0))) {
         std::cout << "Skipping" << std::endl;
         continue;
       }
-      jf_.measure_imu(accel_meas.first, t);
-      jet_opt_.measure_imu(accel_meas.first, t);
+
+      MatNd<3, 3> L;
+      // clang-format off
+      {
+      L.row(0) << 9.67735, 0, 0;
+      L.row(1) << 0.136597, 9.59653, 0;
+      L.row(2) << -0.216635, 0.00400047, 9.64812;
+      }  // clang-format on
+      const jcc::Vec3 offset(0.0562102, 0.42847, -0.119841);
+      const geometry::shapes::Ellipse ellipse{L, offset};
+      const VecNd<3> compensated_accel =
+          geometry::shapes::deform_ellipse_to_unit_sphere(accel_meas.first.observed_acceleration, ellipse) * 9.81;
+
+      // jf_.measure_imu({compensated_accel}, t);
+      jet_opt_.measure_imu({compensated_accel}, t);
+
+      // jf_.measure_imu(accel_meas.first, t);
+      // jet_opt_.measure_imu(accel_meas.first, t);
 
       // jf_.measure_gyro(gyro_meas.first, t + estimation::to_duration(0.000001));
       // jet_opt_.measure_gyro(gyro_meas.first, t + estimation::to_duration(0.000001));
@@ -319,8 +335,6 @@ class Calibrator {
       est_states.push_back({state, jf_.state().time_of_validity});
 
       const auto cov = jf_.state().P;
-      const Eigen::LLT<MatNd<3, 3>> P_llt(
-          cov.block<3, 3>(ejf::StateDelta::x_world_error_ind, ejf::StateDelta::x_world_error_ind));
 
       const auto t = jf_.state().time_of_validity;
 
@@ -371,7 +385,10 @@ class Calibrator {
       std::cout << "\texp gyro:   " << expected_gyro_imu.transpose() << std::endl;
 
       geo_->add_axes({T_world_from_body, 0.01, 1.0, false});
-      // geo_->add_ellipsoid({geometry::shapes::Ellipse{P_llt.matrixU(), T_world_from_body.translation()}});
+
+      // const Eigen::LLT<MatNd<3, 3>> P_llt(
+      // cov.block<3, 3>(ejf::StateDelta::x_world_error_ind, ejf::StateDelta::x_world_error_ind));
+      // geo_->add_ellipsoid({geometry::shapes::Ellipse{P_llt.matrixL(), T_world_from_body.translation()}});
       const SE3 T_imu_from_vehicle = jf_.parameters().T_imu_from_vehicle;
 
       const jcc::Vec3 velocity_world_frame = state.eps_dot.head<3>();
@@ -384,10 +401,13 @@ class Calibrator {
 
       const jcc::Vec3 meas_sp_f_world =
           (T_world_from_body * T_imu_from_vehicle.inverse()).so3() * (meas_accel_imu_t - g_imu);
-      timestep_geo->add_line({T_world_from_body.translation(), T_world_from_body.translation() + meas_sp_f_world,
-                              jcc::Vec4(0.3, 0.7, 0.7, 0.8)});
-
       std::cout << "Meas sp f w; " << meas_sp_f_world.transpose() << std::endl;
+      // timestep_geo->add_line({T_world_from_body.translation(), T_world_from_body.translation() + meas_sp_f_world,
+      //                         jcc::Vec4(0.3, 0.7, 0.7, 0.8)});
+
+      const jcc::Vec3 meas_accel_world = (T_world_from_body * T_imu_from_vehicle.inverse()).so3() * meas_accel_imu_t;
+      timestep_geo->add_line({T_world_from_body.translation(), T_world_from_body.translation() + meas_accel_world,
+                              jcc::Vec4(0.3, 0.7, 0.7, 0.8)});
 
       jcc::Vec3 prev_pos = T_world_from_body.translation();
       for (double added_t = 0.01; added_t < 0.2; added_t += 0.01) {
@@ -470,8 +490,8 @@ void go() {
   // const std::string path = "/jet/logs/calibration-log-jan31-1";
   // const std::string path = "/jet/logs/calibration-log-feb9-1";
   // const std::string path = "/jet/logs/calibration-log-feb9-2";
-  // const std::string path = "/jet/logs/calibration-log-feb14-1";
-  const std::string path = "/jet/logs/imu-calibration-log-feb-17-1";
+  const std::string path = "/jet/logs/calibration-log-feb14-1";
+  // const std::string path = "/jet/logs/imu-calibration-log-feb-17-1";
 
   Calibrator calibrator;
   jet::LogReader reader(path, channel_names);
