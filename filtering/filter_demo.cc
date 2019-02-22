@@ -21,6 +21,9 @@
 #include "third_party/experiments/viewer/primitives/simple_geometry.hh"
 #include "third_party/experiments/viewer/window_3d.hh"
 
+//%deps(plot)
+#include "third_party/experiments/viewer/primitives/plot.hh"
+
 //%deps(time_interpolator)
 #include "third_party/experiments/geometry/spatial/time_interpolator.hh"
 
@@ -62,6 +65,50 @@ void draw_states(viewer::SimpleGeometry& geo,
     }
   }
 }
+
+void plot_states(viewer::Plot& plot,
+                 const ejf::JetPoseOptimizer::Solution& soln,
+                 const estimation::TimePoint& first_t) {
+  viewer::LinePlot accels_plot;
+
+  accels_plot.subplots["opt_est_x"].color = jcc::Vec4(1.0, 0.0, 0.0, 0.4);
+  accels_plot.subplots["opt_est_x"].line_width = 1.0;
+  accels_plot.subplots["opt_est_y"].color = jcc::Vec4(0.0, 1.0, 0.0, 0.4);
+  accels_plot.subplots["opt_est_y"].line_width = 1.0;
+  accels_plot.subplots["opt_est_z"].color = jcc::Vec4(0.0, 0.0, 1.0, 0.4);
+  accels_plot.subplots["opt_est_z"].line_width = 1.0;
+
+  accels_plot.subplots["opt_est_ddot_x"].color = jcc::Vec4(1.0, 0.0, 0.0, 0.4);
+  accels_plot.subplots["opt_est_ddot_x"].line_width = 1.0;
+  accels_plot.subplots["opt_est_ddot_x"].dotted = true;
+  accels_plot.subplots["opt_est_ddot_y"].color = jcc::Vec4(0.0, 1.0, 0.0, 0.4);
+  accels_plot.subplots["opt_est_ddot_y"].line_width = 1.0;
+  accels_plot.subplots["opt_est_ddot_y"].dotted = true;
+  accels_plot.subplots["opt_est_ddot_z"].color = jcc::Vec4(0.0, 0.0, 1.0, 0.4);
+  accels_plot.subplots["opt_est_ddot_z"].line_width = 1.0;
+  accels_plot.subplots["opt_est_ddot_z"].dotted = true;
+
+  for (const auto& x : soln.x) {
+    const jcc::Vec3 optimized_accel = observe_accel(x.x, soln.p).observed_acceleration;
+    accels_plot.subplots["opt_est_x"].points.push_back(
+        {estimation::to_seconds(x.time_of_validity - first_t), optimized_accel.x()});
+    accels_plot.subplots["opt_est_y"].points.push_back(
+        {estimation::to_seconds(x.time_of_validity - first_t), optimized_accel.y()});
+    accels_plot.subplots["opt_est_z"].points.push_back(
+        {estimation::to_seconds(x.time_of_validity - first_t), optimized_accel.z()});
+
+    accels_plot.subplots["opt_est_ddot_x"].points.push_back(
+        {estimation::to_seconds(x.time_of_validity - first_t), x.x.eps_ddot.head<3>().x()});
+    accels_plot.subplots["opt_est_ddot_y"].points.push_back(
+        {estimation::to_seconds(x.time_of_validity - first_t), x.x.eps_ddot.head<3>().y()});
+    accels_plot.subplots["opt_est_ddot_z"].points.push_back(
+        {estimation::to_seconds(x.time_of_validity - first_t), x.x.eps_ddot.head<3>().z()});
+  }
+
+  plot.add_line_plot(accels_plot);
+}
+
+}  // namespace
 
 void setup() {
   const auto view = viewer::get_window3d("Filter Debug");
@@ -191,59 +238,6 @@ class Calibrator {
     return interp;
   }
 
-  void prepare() {
-    const auto view = viewer::get_window3d("Filter Debug");
-
-    const auto accel_interpolator = make_accel_interpolator();
-    const auto mag_interpolator = fit_mag();
-
-    const SE3 imu_from_vehicle = jf_.parameters().T_imu_from_vehicle;
-
-    for (const auto& fiducial_meas : fiducial_meas_) {
-      const SE3 world_from_vehicle = fiducial_meas.first.T_fiducial_from_camera;
-      const SE3 imu_from_world = imu_from_vehicle * world_from_vehicle.inverse();
-
-      // geo_->add_axes({imu_from_world.inverse(), 0.01});
-
-      const auto fiducial_measurement_t = fiducial_meas.second;
-
-      const auto maybe_interp_at_t = accel_interpolator(fiducial_measurement_t);
-      if (!maybe_interp_at_t) {
-        std::cout << "Failed" << std::endl;
-        continue;
-      }
-      const jcc::Vec3 accel_meas_imu_at_t = *maybe_interp_at_t;
-      const jcc::Vec3 accel_meas_vehicle_frame = imu_from_vehicle.so3().inverse() * accel_meas_imu_at_t;
-
-      const jcc::Vec3 mag_meas_vehicle_frame = imu_from_vehicle.so3() * (*mag_interpolator(fiducial_measurement_t));
-
-      constexpr double M_PER_MPSS = 0.01;
-      const jcc::Vec4 imu_obs_color(0.1, 0.7, 0.7, 0.4);
-      geo_->add_line({world_from_vehicle.translation(), world_from_vehicle * (accel_meas_vehicle_frame * M_PER_MPSS),
-                      imu_obs_color});
-
-      /*
-      const jcc::Vec3 g_vehicle_frame = (world_from_vehicle.so3().inverse() * (jcc::Vec3::UnitZ() * 9.81));
-      const jcc::Vec3 accel_g_subtracted_vehicle = accel_meas_vehicle_frame - g_vehicle_frame;
-      const jcc::Vec3 imu_direction = world_from_vehicle.so3() * (accel_g_subtracted_vehicle).normalized();
-      const double accel_norm_no_g = accel_g_subtracted_vehicle.norm() * M_PER_MPSS;
-      geo_->add_ray({world_from_vehicle.translation(), imu_direction, accel_norm_no_g, imu_obs_color, 3.0});
-      */
-
-      const jcc::Vec4 mag_obs_color(1.0, 0.3, 0.3, 0.4);
-      geo_->add_ray({world_from_vehicle.translation(), world_from_vehicle.so3() * mag_meas_vehicle_frame.normalized(),
-                     1.0, mag_obs_color, 3.0});
-
-      const double cos_angle_grav_bfield =
-          accel_meas_vehicle_frame.normalized().dot(mag_meas_vehicle_frame.normalized());
-
-      // geo_->add_ray(
-      // {jcc::Vec3::Zero(), world_from_vehicle.so3() * mag_meas_vehicle_frame.normalized(), 1.0, mag_obs_color, 3.0});
-    }
-    view->spin_until_step();
-    geo_->flush();
-  }
-
   std::vector<ejf::JetOptimizer::StateObservation> test_filter() {
     const auto view = viewer::get_window3d("Filter Debug");
     const auto accel_interpolator = make_accel_interpolator();
@@ -256,6 +250,9 @@ class Calibrator {
 
     const auto timestep_geo = view->add_primitive<viewer::SimpleGeometry>();
 
+    const auto plot_prim = view->add_primitive<viewer::Plot>();
+    viewer::LinePlot accels_plot;
+
     const auto first_t = fiducial_meas_.front().second;
     for (const auto& fiducial_meas : fiducial_meas_) {
       const estimation::TimePoint t = fiducial_meas.second;
@@ -266,12 +263,14 @@ class Calibrator {
       if (!got_camera_) {
         auto xp0 = ejf::JetFilter::reasonable_initial_state();
 
-        // xp0.x.T_body_from_world = fiducial_meas.first.T_fiducial_from_camera.inverse();
         const SE3 world_from_camera = fiducial_meas.first.T_fiducial_from_camera;
         xp0.x.x_world = world_from_camera.translation();
         xp0.x.R_world_from_body = world_from_camera.so3();
 
-        // xp0.x.accel_bias = jcc::Vec3(-1.806, 0.133, -0.375);
+        xp0.x.accel_bias = jcc::Vec3(-0.0820206, 0.130374, -0.0765352);
+        xp0.x.eps_ddot.head<3>() = jcc::Vec3(-0.0311536, 0.00954281, 0.00866376);
+        xp0.x.eps_dot.head<3>() = jcc::Vec3(0.0668085, -0.179568, 0.0647334);
+        xp0.x.eps_dot.tail<3>() = jcc::Vec3(0.0105246, 0.0498496, 0.0707742);
 
         xp0.time_of_validity = t;
         jf_.reset(xp0);
@@ -295,32 +294,51 @@ class Calibrator {
       const auto& gyro_meas = gyro_meas_.at(k);
 
       const estimation::TimePoint t = accel_meas.second;
-      if (t <= (first_t + estimation::to_duration(3.0))) {
-        std::cout << "Skipping" << std::endl;
-        continue;
-      }
 
       MatNd<3, 3> L;
       // clang-format off
       {
-      L.row(0) << 9.67735, 0, 0;
-      L.row(1) << 0.136597, 9.59653, 0;
-      L.row(2) << -0.216635, 0.00400047, 9.64812;
+        L.row(0) << 9.67735, 0, 0;
+        L.row(1) << 0.136597, 9.59653, 0;
+        L.row(2) << -0.216635, 0.00400047, 9.64812;
       }  // clang-format on
       const jcc::Vec3 offset(0.0562102, 0.42847, -0.119841);
       const geometry::shapes::Ellipse ellipse{L, offset};
       const VecNd<3> compensated_accel =
           geometry::shapes::deform_ellipse_to_unit_sphere(accel_meas.first.observed_acceleration, ellipse) * 9.81;
 
-      // jf_.measure_imu({compensated_accel}, t);
+      accels_plot.subplots["true_x"].points.push_back({estimation::to_seconds(t - first_t), compensated_accel.x()});
+      accels_plot.subplots["true_y"].points.push_back({estimation::to_seconds(t - first_t), compensated_accel.y()});
+      accels_plot.subplots["true_z"].points.push_back({estimation::to_seconds(t - first_t), compensated_accel.z()});
+
+      if (t <= (first_t + estimation::to_duration(1.5))) {
+        std::cout << "Skipping" << std::endl;
+        continue;
+      }
+
+      jf_.measure_imu({compensated_accel}, t);
       jet_opt_.measure_imu({compensated_accel}, t);
 
       // jf_.measure_imu(accel_meas.first, t);
       // jet_opt_.measure_imu(accel_meas.first, t);
 
       // jf_.measure_gyro(gyro_meas.first, t + estimation::to_duration(0.000001));
-      // jet_opt_.measure_gyro(gyro_meas.first, t + estimation::to_duration(0.000001));
+      // jet_opt_.measure_gyro(gyro_meas.first, t);
     }
+
+    accels_plot.subplots["true_x"].color = jcc::Vec4(1.0, 0.0, 0.0, 0.8);
+    accels_plot.subplots["true_x"].line_width = 4.0;
+    accels_plot.subplots["true_y"].color = jcc::Vec4(0.0, 1.0, 0.0, 0.8);
+    accels_plot.subplots["true_y"].line_width = 4.0;
+    accels_plot.subplots["true_z"].color = jcc::Vec4(0.0, 0.0, 1.0, 0.8);
+    accels_plot.subplots["true_z"].line_width = 4.0;
+
+    accels_plot.subplots["est_x"].color = jcc::Vec4(1.0, 0.0, 0.0, 0.4);
+    accels_plot.subplots["est_x"].line_width = 1.0;
+    accels_plot.subplots["est_y"].color = jcc::Vec4(0.0, 1.0, 0.0, 0.4);
+    accels_plot.subplots["est_y"].line_width = 1.0;
+    accels_plot.subplots["est_z"].color = jcc::Vec4(0.0, 0.0, 1.0, 0.4);
+    accels_plot.subplots["est_z"].line_width = 1.0;
 
     estimation::TimePoint prev_time;
 
@@ -405,6 +423,10 @@ class Calibrator {
       // timestep_geo->add_line({T_world_from_body.translation(), T_world_from_body.translation() + meas_sp_f_world,
       //                         jcc::Vec4(0.3, 0.7, 0.7, 0.8)});
 
+      // accels_plot.subplots["est_x"].points.push_back({estimation::to_seconds(t - first_t), expected_accel_imu.x()});
+      // accels_plot.subplots["est_y"].points.push_back({estimation::to_seconds(t - first_t), expected_accel_imu.y()});
+      // accels_plot.subplots["est_z"].points.push_back({estimation::to_seconds(t - first_t), expected_accel_imu.z()});
+
       const jcc::Vec3 meas_accel_world = (T_world_from_body * T_imu_from_vehicle.inverse()).so3() * meas_accel_imu_t;
       timestep_geo->add_line({T_world_from_body.translation(), T_world_from_body.translation() + meas_accel_world,
                               jcc::Vec4(0.3, 0.7, 0.7, 0.8)});
@@ -422,11 +444,14 @@ class Calibrator {
       timestep_geo->flip();
       view->spin_until_step();
     }
+
+    plot_prim->add_line_plot(accels_plot);
+    view->spin_until_step();
     return est_states;
   }
 
   void run() {
-    prepare();
+    // prepare();
     const std::vector<ejf::JetOptimizer::StateObservation> est_states = test_filter();
 
     const auto view = viewer::get_window3d("Filter Debug");
@@ -450,13 +475,20 @@ class Calibrator {
   ejf::JetPoseOptimizer::Visitor make_visitor() {
     const auto view = viewer::get_window3d("Filter Debug");
     const auto visitor_geo = view->add_primitive<viewer::SimpleGeometry>();
-    const auto visitor = [view, visitor_geo](const ejf::JetPoseOptimizer::Solution& soln) {
+    const auto plot_prim = view->add_primitive<viewer::Plot>();
+
+    const auto first_t = fiducial_meas_.front().second;
+    const auto visitor = [first_t, view, visitor_geo, plot_prim](const ejf::JetPoseOptimizer::Solution& soln) {
+      plot_prim->clear();
       visitor_geo->clear();
       draw_states(*visitor_geo, soln.x, false);
       visitor_geo->flip();
       // std::cout << "\tOptimized g: " << soln.p.g_world.transpose() << std::endl;
       std::cout << "\tOptimized T_imu_from_vehicle: " << soln.p.T_imu_from_vehicle.translation().transpose() << "; "
                 << soln.p.T_imu_from_vehicle.so3().log().transpose() << std::endl;
+
+      plot_states(*plot_prim, soln, first_t);
+
       view->spin_until_step();
     };
     return visitor;
@@ -477,8 +509,6 @@ class Calibrator {
   // temp
   std::shared_ptr<viewer::SimpleGeometry> geo_;
 };
-
-}  // namespace
 
 void go() {
   setup();
