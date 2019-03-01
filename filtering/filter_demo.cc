@@ -71,12 +71,12 @@ void plot_states(viewer::Plot& plot,
                  const estimation::TimePoint& first_t) {
   viewer::LinePlot accels_plot;
 
-  accels_plot.subplots["opt_est_x"].color = jcc::Vec4(1.0, 0.0, 0.0, 0.4);
-  accels_plot.subplots["opt_est_x"].line_width = 1.0;
-  accels_plot.subplots["opt_est_y"].color = jcc::Vec4(0.0, 1.0, 0.0, 0.4);
-  accels_plot.subplots["opt_est_y"].line_width = 1.0;
-  accels_plot.subplots["opt_est_z"].color = jcc::Vec4(0.0, 0.0, 1.0, 0.4);
-  accels_plot.subplots["opt_est_z"].line_width = 1.0;
+  accels_plot.subplots["opt_est_expected_x"].color = jcc::Vec4(1.0, 0.0, 0.0, 0.4);
+  accels_plot.subplots["opt_est_expected_x"].line_width = 1.0;
+  accels_plot.subplots["opt_est_expected_y"].color = jcc::Vec4(0.0, 1.0, 0.0, 0.4);
+  accels_plot.subplots["opt_est_expected_y"].line_width = 1.0;
+  accels_plot.subplots["opt_est_expected_z"].color = jcc::Vec4(0.0, 0.0, 1.0, 0.4);
+  accels_plot.subplots["opt_est_expected_z"].line_width = 1.0;
 
   accels_plot.subplots["opt_est_ddot_x"].color = jcc::Vec4(1.0, 0.0, 0.0, 0.4);
   accels_plot.subplots["opt_est_ddot_x"].line_width = 1.0;
@@ -90,11 +90,11 @@ void plot_states(viewer::Plot& plot,
 
   for (const auto& x : soln.x) {
     const jcc::Vec3 optimized_accel = observe_accel(x.x, soln.p).observed_acceleration;
-    accels_plot.subplots["opt_est_x"].points.push_back(
+    accels_plot.subplots["opt_est_expected_x"].points.push_back(
         {estimation::to_seconds(x.time_of_validity - first_t), optimized_accel.x()});
-    accels_plot.subplots["opt_est_y"].points.push_back(
+    accels_plot.subplots["opt_est_expected_y"].points.push_back(
         {estimation::to_seconds(x.time_of_validity - first_t), optimized_accel.y()});
-    accels_plot.subplots["opt_est_z"].points.push_back(
+    accels_plot.subplots["opt_est_expected_z"].points.push_back(
         {estimation::to_seconds(x.time_of_validity - first_t), optimized_accel.z()});
 
     accels_plot.subplots["opt_est_ddot_x"].points.push_back(
@@ -298,18 +298,21 @@ class Calibrator {
       MatNd<3, 3> L;
       // clang-format off
       {
-        L.row(0) << 9.67735, 0, 0;
-        L.row(1) << 0.136597, 9.59653, 0;
-        L.row(2) << -0.216635, 0.00400047, 9.64812;
+        L.row(0) << +9.677350, +0.00000, +0.00000;
+        L.row(1) << +0.136597, +9.59653, +0.00000;
+        L.row(2) << -0.216635, +0.00400, +9.64812;
       }  // clang-format on
       const jcc::Vec3 offset(0.0562102, 0.42847, -0.119841);
       const geometry::shapes::Ellipse ellipse{L, offset};
       const VecNd<3> compensated_accel =
           geometry::shapes::deform_ellipse_to_unit_sphere(accel_meas.first.observed_acceleration, ellipse) * 9.81;
 
-      accels_plot.subplots["true_x"].points.push_back({estimation::to_seconds(t - first_t), compensated_accel.x()});
-      accels_plot.subplots["true_y"].points.push_back({estimation::to_seconds(t - first_t), compensated_accel.y()});
-      accels_plot.subplots["true_z"].points.push_back({estimation::to_seconds(t - first_t), compensated_accel.z()});
+      accels_plot.subplots["true_accel_x"].points.push_back(
+          {estimation::to_seconds(t - first_t), compensated_accel.x()});
+      accels_plot.subplots["true_accel_y"].points.push_back(
+          {estimation::to_seconds(t - first_t), compensated_accel.y()});
+      accels_plot.subplots["true_accel_z"].points.push_back(
+          {estimation::to_seconds(t - first_t), compensated_accel.z()});
 
       if (t <= (first_t + estimation::to_duration(1.5))) {
         std::cout << "Skipping" << std::endl;
@@ -322,23 +325,16 @@ class Calibrator {
       // jf_.measure_imu(accel_meas.first, t);
       // jet_opt_.measure_imu(accel_meas.first, t);
 
-      // jf_.measure_gyro(gyro_meas.first, t + estimation::to_duration(0.000001));
+      // jf_.measure_gyro(gyro_meas.first, t);
       // jet_opt_.measure_gyro(gyro_meas.first, t);
     }
 
-    accels_plot.subplots["true_x"].color = jcc::Vec4(1.0, 0.0, 0.0, 0.8);
-    accels_plot.subplots["true_x"].line_width = 4.0;
-    accels_plot.subplots["true_y"].color = jcc::Vec4(0.0, 1.0, 0.0, 0.8);
-    accels_plot.subplots["true_y"].line_width = 4.0;
-    accels_plot.subplots["true_z"].color = jcc::Vec4(0.0, 0.0, 1.0, 0.8);
-    accels_plot.subplots["true_z"].line_width = 4.0;
-
-    accels_plot.subplots["est_x"].color = jcc::Vec4(1.0, 0.0, 0.0, 0.4);
-    accels_plot.subplots["est_x"].line_width = 1.0;
-    accels_plot.subplots["est_y"].color = jcc::Vec4(0.0, 1.0, 0.0, 0.4);
-    accels_plot.subplots["est_y"].line_width = 1.0;
-    accels_plot.subplots["est_z"].color = jcc::Vec4(0.0, 0.0, 1.0, 0.4);
-    accels_plot.subplots["est_z"].line_width = 1.0;
+    accels_plot.subplots["true_accel_x"].color = jcc::Vec4(1.0, 0.0, 0.0, 0.8);
+    accels_plot.subplots["true_accel_x"].line_width = 4.0;
+    accels_plot.subplots["true_accel_y"].color = jcc::Vec4(0.0, 1.0, 0.0, 0.8);
+    accels_plot.subplots["true_accel_y"].line_width = 4.0;
+    accels_plot.subplots["true_accel_z"].color = jcc::Vec4(0.0, 0.0, 1.0, 0.8);
+    accels_plot.subplots["true_accel_z"].line_width = 4.0;
 
     estimation::TimePoint prev_time;
 
@@ -422,10 +418,6 @@ class Calibrator {
       std::cout << "Meas sp f w; " << meas_sp_f_world.transpose() << std::endl;
       // timestep_geo->add_line({T_world_from_body.translation(), T_world_from_body.translation() + meas_sp_f_world,
       //                         jcc::Vec4(0.3, 0.7, 0.7, 0.8)});
-
-      // accels_plot.subplots["est_x"].points.push_back({estimation::to_seconds(t - first_t), expected_accel_imu.x()});
-      // accels_plot.subplots["est_y"].points.push_back({estimation::to_seconds(t - first_t), expected_accel_imu.y()});
-      // accels_plot.subplots["est_z"].points.push_back({estimation::to_seconds(t - first_t), expected_accel_imu.z()});
 
       const jcc::Vec3 meas_accel_world = (T_world_from_body * T_imu_from_vehicle.inverse()).so3() * meas_accel_imu_t;
       timestep_geo->add_line({T_world_from_body.translation(), T_world_from_body.translation() + meas_accel_world,

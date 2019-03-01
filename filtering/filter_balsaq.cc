@@ -59,7 +59,8 @@ void FilterBq::loop() {
     if (!jf_.initialized()) {
       std::cout << "Initializing" << std::endl;
       auto xp0 = estimation::jet_filter::JetFilter::reasonable_initial_state();
-      xp0.x.T_body_from_world = fiducial_meas.T_fiducial_from_camera.inverse();
+      xp0.x.R_world_from_body = fiducial_meas.T_fiducial_from_camera.so3();
+      xp0.x.x_world = fiducial_meas.T_fiducial_from_camera.translation();
       xp0.time_of_validity = fiducial_time_of_validity;
       jf_.reset(xp0);
 
@@ -89,7 +90,8 @@ void FilterBq::loop() {
     Pose pose;
     {
       const SE3 vehicle_real_from_vehicle_filtered;
-      pose.world_from_jet = (vehicle_real_from_vehicle_filtered * state.T_body_from_world).inverse();
+      const SE3 T_world_from_body = estimation::jet_filter::get_world_from_body(state);
+      pose.world_from_jet = T_world_from_body * vehicle_real_from_vehicle_filtered.inverse();
 
       const jcc::Vec3 log_translation_world_from_vehicle = pose.world_from_jet.translation();
       const jcc::Vec3 log_rotation_world_from_vehicle = pose.world_from_jet.so3().log();
@@ -102,10 +104,10 @@ void FilterBq::loop() {
                 << log_rotation_world_from_vehicle[1] << ", " << log_rotation_world_from_vehicle[2] << "] "
                 << std::endl;
 
-      pose.v_world_frame = (vehicle_real_from_vehicle_filtered.so3() * state.T_body_from_world.so3()).inverse() *
-                           state.eps_dot.head<3>();
-      pose.w_world_frame = (vehicle_real_from_vehicle_filtered.so3() * state.T_body_from_world.so3()).inverse() *
-                           state.eps_dot.tail<3>();
+      pose.v_world_frame =
+          (vehicle_real_from_vehicle_filtered.so3() * state.R_world_from_body.inverse()).inverse() * state.eps_dot.head<3>();
+      pose.w_world_frame =
+          (vehicle_real_from_vehicle_filtered.so3() * state.R_world_from_body.inverse()).inverse() * state.eps_dot.tail<3>();
       pose.timestamp = imu_msg.timestamp;
     }
 
