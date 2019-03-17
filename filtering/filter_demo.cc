@@ -108,6 +108,80 @@ void plot_states(viewer::Plot& plot,
   plot.add_line_plot(accels_plot);
 }
 
+void plot_velocities(viewer::Plot& plot,
+                     const std::vector<ejf::JetOptimizer::StateObservation>& states,
+                     const estimation::TimePoint& first_t,
+                     const bool from_kf) {
+  viewer::LinePlot speeds_plot;
+
+  const double line_width = from_kf ? 4.0 : 1.0;
+
+  speeds_plot.subplots["opt_est_dot_x"].color = jcc::Vec4(1.0, 0.0, 0.0, 0.4);
+  speeds_plot.subplots["opt_est_dot_x"].line_width = line_width;
+  speeds_plot.subplots["opt_est_dot_x"].dotted = !from_kf;
+  speeds_plot.subplots["opt_est_dot_y"].color = jcc::Vec4(0.0, 1.0, 0.0, 0.4);
+  speeds_plot.subplots["opt_est_dot_y"].line_width = line_width;
+  speeds_plot.subplots["opt_est_dot_y"].dotted = !from_kf;
+  speeds_plot.subplots["opt_est_dot_z"].color = jcc::Vec4(0.0, 0.0, 1.0, 0.4);
+  speeds_plot.subplots["opt_est_dot_z"].line_width = line_width;
+  speeds_plot.subplots["opt_est_dot_z"].dotted = !from_kf;
+
+  speeds_plot.subplots["opt_est_dot_norm"].color = jcc::Vec4(0.0, 1.0, 1.0, 0.4);
+  speeds_plot.subplots["opt_est_dot_norm"].line_width = line_width;
+  speeds_plot.subplots["opt_est_dot_norm"].dotted = !from_kf;
+
+  for (const auto& x : states) {
+    const double dt = estimation::to_seconds(x.time_of_validity - first_t);
+
+    speeds_plot.subplots["opt_est_dot_x"].points.push_back({dt, x.x.eps_dot.head<3>().x()});
+    speeds_plot.subplots["opt_est_dot_y"].points.push_back({dt, x.x.eps_dot.head<3>().y()});
+    speeds_plot.subplots["opt_est_dot_z"].points.push_back({dt, x.x.eps_dot.head<3>().z()});
+
+    speeds_plot.subplots["opt_est_dot_norm"].points.push_back({dt, x.x.eps_dot.head<3>().norm()});
+  }
+
+  plot.add_line_plot(speeds_plot);
+}
+
+void plot_both_velocities(viewer::Plot& plot,
+                          const std::vector<ejf::JetOptimizer::StateObservation>& kf_states,
+                          const std::vector<ejf::JetOptimizer::StateObservation>& nkf_states,
+                          const estimation::TimePoint& first_t) {
+  viewer::LinePlot speeds_plot;
+  const bool from_kf = false;
+
+  const double line_width = from_kf ? 4.0 : 1.0;
+
+  speeds_plot.subplots["opt_est_dot_x"].color = jcc::Vec4(1.0, 0.0, 0.0, 0.4);
+  speeds_plot.subplots["opt_est_dot_x"].line_width = line_width;
+  speeds_plot.subplots["opt_est_dot_x"].dotted = !from_kf;
+  speeds_plot.subplots["opt_est_dot_y"].color = jcc::Vec4(0.0, 1.0, 0.0, 0.4);
+  speeds_plot.subplots["opt_est_dot_y"].line_width = line_width;
+  speeds_plot.subplots["opt_est_dot_y"].dotted = !from_kf;
+  speeds_plot.subplots["opt_est_dot_z"].color = jcc::Vec4(0.0, 0.0, 1.0, 0.4);
+  speeds_plot.subplots["opt_est_dot_z"].line_width = line_width;
+  speeds_plot.subplots["opt_est_dot_z"].dotted = !from_kf;
+
+  speeds_plot.subplots["opt_est_dot_norm"].color = jcc::Vec4(0.0, 1.0, 1.0, 0.4);
+  speeds_plot.subplots["opt_est_dot_norm"].line_width = line_width;
+  speeds_plot.subplots["opt_est_dot_norm"].dotted = !from_kf;
+
+  for (std::size_t k = 0u; k < kf_states.size(); ++k) {
+    const auto& x_kf = kf_states.at(k).x;
+    const double dt = estimation::to_seconds(kf_states.at(k).time_of_validity - first_t);
+
+    const auto& x_est = nkf_states.at(k).x;
+    speeds_plot.subplots["opt_est_dot_x"].points.push_back(
+        {dt, x_kf.eps_dot.head<3>().x() / x_est.eps_dot.head<3>().x()});
+    speeds_plot.subplots["opt_est_dot_y"].points.push_back(
+        {dt, x_kf.eps_dot.head<3>().y() / x_est.eps_dot.head<3>().y()});
+    speeds_plot.subplots["opt_est_dot_z"].points.push_back(
+        {dt, x_kf.eps_dot.head<3>().z() / x_est.eps_dot.head<3>().z()});
+  }
+
+  plot.add_line_plot(speeds_plot);
+}
+
 }  // namespace
 
 void setup() {
@@ -433,11 +507,16 @@ class Calibrator {
       }
 
       geo_->flush();
-      timestep_geo->flip();
-      view->spin_until_step();
+      // timestep_geo->flip();
+      // view->spin_until_step();
     }
 
-    plot_prim->add_line_plot(accels_plot);
+    // plot_prim->add_line_plot(accels_plot);
+
+    // plot_prim->add_line_plot
+    constexpr bool FROM_KF = true;
+    plot_velocities(*plot_prim, est_states, fiducial_meas_.front().second, FROM_KF);
+
     view->spin_until_step();
     return est_states;
   }
@@ -461,6 +540,11 @@ class Calibrator {
     std::cout << "\teps_dot:    " << x0.eps_dot.transpose() << std::endl;
     std::cout << "\tx:          " << get_world_from_body(x0).translation().transpose() << std::endl;
     std::cout << "\tlog(r)      " << x0.R_world_from_body.log().transpose() << std::endl;
+
+    const auto plot_prim = view->add_primitive<viewer::Plot>();
+    plot_both_velocities(*plot_prim, est_states, solution.x, fiducial_meas_.front().second);
+
+    view->spin_until_step();
   }
 
  private:
@@ -479,9 +563,11 @@ class Calibrator {
       std::cout << "\tOptimized T_imu_from_vehicle: " << soln.p.T_imu_from_vehicle.translation().transpose() << "; "
                 << soln.p.T_imu_from_vehicle.so3().log().transpose() << std::endl;
 
-      plot_states(*plot_prim, soln, first_t);
+      // plot_states(*plot_prim, soln, first_t);
+      constexpr bool FROM_KF = false;
+      plot_velocities(*plot_prim, soln.x, first_t, FROM_KF);
 
-      view->spin_until_step();
+      // view->spin_until_step();
     };
     return visitor;
   }
