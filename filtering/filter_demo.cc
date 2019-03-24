@@ -137,46 +137,55 @@ void plot_velocities(viewer::Plot& plot,
     speeds_plot.subplots["opt_est_dot_y"].points.push_back({dt, x.x.eps_dot.head<3>().y()});
     speeds_plot.subplots["opt_est_dot_z"].points.push_back({dt, x.x.eps_dot.head<3>().z()});
 
-    speeds_plot.subplots["opt_est_dot_norm"].points.push_back({dt, x.x.eps_dot.head<3>().norm()});
+    const double mul = dt < 1.5 ? 0.0 : 1.0;
+    speeds_plot.subplots["opt_est_dot_norm"].points.push_back({dt, mul * x.x.eps_dot.head<3>().norm()});
   }
 
   plot.add_line_plot(speeds_plot);
 }
 
-void plot_both_velocities(viewer::Plot& plot,
-                          const std::vector<ejf::JetOptimizer::StateObservation>& kf_states,
-                          const std::vector<ejf::JetOptimizer::StateObservation>& nkf_states,
-                          const estimation::TimePoint& first_t) {
+// Compute a finite-differenced velocity
+void plot_differentiated_velocity(
+    viewer::Plot& plot,
+    const std::vector<std::pair<ejf::FiducialMeasurement, estimation::TimePoint>>& fiducial_meas,
+    const estimation::TimePoint& first_t) {
   viewer::LinePlot speeds_plot;
-  const bool from_kf = false;
 
-  const double line_width = from_kf ? 4.0 : 1.0;
+  const double line_width = 1.0;
+  const double alpha = 1.0;
 
-  speeds_plot.subplots["opt_est_dot_x"].color = jcc::Vec4(1.0, 0.0, 0.0, 0.4);
-  speeds_plot.subplots["opt_est_dot_x"].line_width = line_width;
-  speeds_plot.subplots["opt_est_dot_x"].dotted = !from_kf;
-  speeds_plot.subplots["opt_est_dot_y"].color = jcc::Vec4(0.0, 1.0, 0.0, 0.4);
-  speeds_plot.subplots["opt_est_dot_y"].line_width = line_width;
-  speeds_plot.subplots["opt_est_dot_y"].dotted = !from_kf;
-  speeds_plot.subplots["opt_est_dot_z"].color = jcc::Vec4(0.0, 0.0, 1.0, 0.4);
-  speeds_plot.subplots["opt_est_dot_z"].line_width = line_width;
-  speeds_plot.subplots["opt_est_dot_z"].dotted = !from_kf;
+  speeds_plot.subplots["velocity_x"].color = jcc::Vec4(1.0, 0.2, 0.2, alpha);
+  speeds_plot.subplots["velocity_x"].line_width = line_width;
+  speeds_plot.subplots["velocity_x"].dotted = false;
+  speeds_plot.subplots["velocity_y"].color = jcc::Vec4(0.2, 1.0, 0.2, alpha);
+  speeds_plot.subplots["velocity_y"].line_width = line_width;
+  speeds_plot.subplots["velocity_y"].dotted = false;
+  speeds_plot.subplots["velocity_z"].color = jcc::Vec4(0.2, 0.2, 1.0, alpha);
+  speeds_plot.subplots["velocity_z"].line_width = line_width;
+  speeds_plot.subplots["velocity_z"].dotted = false;
 
-  speeds_plot.subplots["opt_est_dot_norm"].color = jcc::Vec4(0.0, 1.0, 1.0, 0.4);
-  speeds_plot.subplots["opt_est_dot_norm"].line_width = line_width;
-  speeds_plot.subplots["opt_est_dot_norm"].dotted = !from_kf;
+  speeds_plot.subplots["velocity_norm"].color = jcc::Vec4(0.2, 1.0, 1.0, alpha);
+  speeds_plot.subplots["velocity_norm"].line_width = line_width;
+  speeds_plot.subplots["velocity_norm"].dotted = false;
 
-  for (std::size_t k = 0u; k < kf_states.size(); ++k) {
-    const auto& x_kf = kf_states.at(k).x;
-    const double dt = estimation::to_seconds(kf_states.at(k).time_of_validity - first_t);
+  for (std::size_t k = 1u; k < fiducial_meas.size(); ++k) {
+    const auto& meas = fiducial_meas.at(k);
+    const auto& meas_prev = fiducial_meas.at(k - 1);
 
-    const auto& x_est = nkf_states.at(k).x;
-    speeds_plot.subplots["opt_est_dot_x"].points.push_back(
-        {dt, x_kf.eps_dot.head<3>().x() / x_est.eps_dot.head<3>().x()});
-    speeds_plot.subplots["opt_est_dot_y"].points.push_back(
-        {dt, x_kf.eps_dot.head<3>().y() / x_est.eps_dot.head<3>().y()});
-    speeds_plot.subplots["opt_est_dot_z"].points.push_back(
-        {dt, x_kf.eps_dot.head<3>().z() / x_est.eps_dot.head<3>().z()});
+    const double time_offset = estimation::to_seconds(meas_prev.second - first_t);
+    const double dt = estimation::to_seconds(meas.second - meas_prev.second);
+
+    const SE3 world_from_camera_cur = meas.first.T_fiducial_from_camera;
+    const SE3 world_from_camera_prev = meas_prev.first.T_fiducial_from_camera;
+
+    const jcc::Vec3 dpos = world_from_camera_cur.translation() - world_from_camera_prev.translation();
+    const jcc::Vec3 dpos_dt = dpos / dt;
+
+    speeds_plot.subplots["velocity_x"].points.push_back({time_offset, dpos_dt.x()});
+    speeds_plot.subplots["velocity_y"].points.push_back({time_offset, dpos_dt.y()});
+    speeds_plot.subplots["velocity_z"].points.push_back({time_offset, dpos_dt.z()});
+
+    speeds_plot.subplots["velocity_norm"].points.push_back({time_offset, dpos_dt.norm()});
   }
 
   plot.add_line_plot(speeds_plot);
@@ -187,7 +196,7 @@ void plot_both_velocities(viewer::Plot& plot,
 void setup() {
   const auto view = viewer::get_window3d("Filter Debug");
   view->set_target_from_world(SE3(SO3::exp(Eigen::Vector3d(-3.1415 * 0.5, 0.0, 0.0)), jcc::Vec3(-1.0, 0.0, -1.0)));
-  view->set_continue_time_ms(10);
+  view->set_continue_time_ms(1);
   const auto background = view->add_primitive<viewer::SimpleGeometry>();
   const geometry::shapes::Plane ground{jcc::Vec3::UnitZ(), 0.0};
   background->add_plane({ground, 0.1});
@@ -212,9 +221,7 @@ class Calibrator {
     if (estimation::to_seconds(time_of_validity - earliest_camera_time_) > 25.0) {
       return;
     }
-    // if (timestamp > earliest_camera_time_) {
     if (true) {
-      // std::cout << "Accel:"  << uint64_t(msg.timestamp) << std::endl;
       const jcc::Vec3 accel_mpss(msg.accel_mpss_x, msg.accel_mpss_y, msg.accel_mpss_z);
 
       ejf::AccelMeasurement accel_meas;
@@ -338,11 +345,15 @@ class Calibrator {
         auto xp0 = ejf::JetFilter::reasonable_initial_state();
 
         const SE3 world_from_camera = fiducial_meas.first.T_fiducial_from_camera;
-        xp0.x.x_world = world_from_camera.translation();
-        xp0.x.R_world_from_body = world_from_camera.so3();
+        // xp0.x.x_world = world_from_camera.translation();
+        // xp0.x.R_world_from_body = world_from_camera.so3();
+        xp0.x.x_world = jcc::Vec3(-0.574291, 0.453939, 0.83013);
+        xp0.x.R_world_from_body = SO3::exp(jcc::Vec3(-1.77444, 1.85631, -0.820211));
 
         xp0.x.accel_bias = jcc::Vec3(-0.0820206, 0.130374, -0.0765352);
         xp0.x.eps_ddot.head<3>() = jcc::Vec3(-0.0311536, 0.00954281, 0.00866376);
+        xp0.x.eps_ddot.tail<3>().setZero();
+
         xp0.x.eps_dot.head<3>() = jcc::Vec3(0.0668085, -0.179568, 0.0647334);
         xp0.x.eps_dot.tail<3>() = jcc::Vec3(0.0105246, 0.0498496, 0.0707742);
 
@@ -506,7 +517,7 @@ class Calibrator {
         prev_pos = pos;
       }
 
-      geo_->flush();
+      // geo_->flush();
       // timestep_geo->flip();
       // view->spin_until_step();
     }
@@ -516,6 +527,7 @@ class Calibrator {
     // plot_prim->add_line_plot
     constexpr bool FROM_KF = true;
     plot_velocities(*plot_prim, est_states, fiducial_meas_.front().second, FROM_KF);
+    plot_differentiated_velocity(*plot_prim, fiducial_meas_, fiducial_meas_.front().second);
 
     view->spin_until_step();
     return est_states;
@@ -535,14 +547,13 @@ class Calibrator {
 
     std::cout << "States:       " << std::endl;
     std::cout << "\taccel_bias: " << x0.accel_bias.transpose() << std::endl;
-    std::cout << "\tgyro_bias: " << x0.gyro_bias.transpose() << std::endl;
+    std::cout << "\tgyro_bias:  " << x0.gyro_bias.transpose() << std::endl;
     std::cout << "\teps_ddot:   " << x0.eps_ddot.transpose() << std::endl;
     std::cout << "\teps_dot:    " << x0.eps_dot.transpose() << std::endl;
-    std::cout << "\tx:          " << get_world_from_body(x0).translation().transpose() << std::endl;
+    std::cout << "\tx:          " << x0.x_world.transpose() << std::endl;
     std::cout << "\tlog(r)      " << x0.R_world_from_body.log().transpose() << std::endl;
 
     const auto plot_prim = view->add_primitive<viewer::Plot>();
-    plot_both_velocities(*plot_prim, est_states, solution.x, fiducial_meas_.front().second);
 
     view->spin_until_step();
   }
@@ -567,7 +578,7 @@ class Calibrator {
       constexpr bool FROM_KF = false;
       plot_velocities(*plot_prim, soln.x, first_t, FROM_KF);
 
-      // view->spin_until_step();
+      view->spin_until_step();
     };
     return visitor;
   }
