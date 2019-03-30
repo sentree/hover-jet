@@ -35,7 +35,7 @@ jcc::Vec3 sigmoid(const jcc::Vec3& v) {
 QuadraframeStatus generate_control(const SO3& world_from_target, const Pose& pose, const JetStatus& jet_status) {
   JetVaneMapper mapper_;
 
-  const MatNd<3, 3> K = jcc::Vec3(4.0, 4.0, 0.8).asDiagonal();
+  const MatNd<3, 3> K = jcc::Vec3(0.3, 0.3, 0.4).asDiagonal();
 
   //
   // Compute the current expected jet force (All servos zero'd)
