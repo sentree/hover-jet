@@ -69,7 +69,7 @@ void FilterVizBq::draw_sensors() {
 
   ImuMessage imu_msg;
   FiducialDetectionMessage detection_msg;
-  if (false && fiducial_sub_->read(detection_msg, 1)) {
+  if (true && fiducial_sub_->read(detection_msg, 1)) {
     const SE3 fiducial_from_camera = detection_msg.fiducial_from_camera();
     const SE3 fiducial_from_body = fiducial_from_camera * camera_from_body_;
 

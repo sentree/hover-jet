@@ -84,8 +84,11 @@ void FilterBq::loop() {
     const jcc::Vec3 gyro_radps(imu_msg.gyro_radps_x, imu_msg.gyro_radps_y, imu_msg.gyro_radps_z);
     estimation::jet_filter::GyroMeasurement gyro_meas;
     gyro_meas.observed_w = gyro_radps;
-    jf_.measure_gyro(gyro_meas, time_of_validity);
-    jf_.free_run();
+
+    if (jf_.initialized()) {
+      jf_.measure_gyro(gyro_meas, time_of_validity);
+      jf_.free_run();
+    }
     got_imu_msg = true;
   }
 
