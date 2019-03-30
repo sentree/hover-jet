@@ -152,8 +152,8 @@ void FilterVizBq::draw_sensors() {
   if (!fiducial_history_.empty()) {
     const SE3 fiducial_from_camera = fiducial_history_.back();
 
-    constexpr bool DRAW_FIDUCIAL_POSE = true;
-    constexpr bool DRAW_VEHICLE_POSE = false;
+    constexpr bool DRAW_FIDUCIAL_POSE = false;
+    constexpr bool DRAW_VEHICLE_POSE = true;
     constexpr bool DRAW_FIDUCIAL_IN_BODY_FRAME = false;
 
     if (DRAW_FIDUCIAL_POSE) {  // Draw the fiducial axes in the camera frame

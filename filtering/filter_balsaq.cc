@@ -70,7 +70,6 @@ void FilterBq::loop() {
     }
 
     jf_.measure_fiducial(fiducial_meas, fiducial_time_of_validity);
-    jf_.free_run();
     const auto state = jf_.state().x;
   }
 
@@ -80,16 +79,20 @@ void FilterBq::loop() {
   ImuMessage imu_msg;
   bool got_imu_msg = false;
   while (imu_sub_->read(imu_msg, 1)) {
-    const auto time_of_validity = to_time_point(imu_msg.timestamp);
-    const jcc::Vec3 gyro_radps(imu_msg.gyro_radps_x, imu_msg.gyro_radps_y, imu_msg.gyro_radps_z);
-    estimation::jet_filter::GyroMeasurement gyro_meas;
-    gyro_meas.observed_w = gyro_radps;
 
-    if (jf_.initialized()) {
-      jf_.measure_gyro(gyro_meas, time_of_validity);
-      jf_.free_run();
-    }
     got_imu_msg = true;
+  }
+
+  // if (jf_.initialized() && got_imu_msg) {
+  //   const auto time_of_validity = to_time_point(imu_msg.timestamp);
+  //   const jcc::Vec3 gyro_radps(imu_msg.gyro_radps_x, imu_msg.gyro_radps_y, imu_msg.gyro_radps_z);
+  //   estimation::jet_filter::GyroMeasurement gyro_meas;
+  //   gyro_meas.observed_w = gyro_radps;
+  //   jf_.measure_gyro(gyro_meas, time_of_validity);
+  // }
+
+  if (jf_.initialized()) {
+    jf_.free_run();
   }
 
   //
