@@ -144,6 +144,29 @@ void plot_velocities(viewer::Plot& plot,
   plot.add_line_plot(speeds_plot);
 }
 
+// Fit a quadratic and estimate derivatives
+jcc::Vec3 smooth_central_diff(const std::array<jcc::Vec3, 3>& vals, const std::array<estimation::TimePoint, 3>& times) {
+  MatNd<3, 3> polynomial_mat;
+  const int half = 3 / 2;
+  for (int k = 0; k < 3; ++k) {
+    const double x = estimation::to_seconds(times[k] - times[half]);
+    polynomial_mat.row(k) << x * x, x, 1.0;
+  }
+
+  const MatNd<3, 3> pmat_inv = polynomial_mat.inverse();
+  jcc::Vec3 result;
+  for (int k = 0; k < 3; ++k) {
+    jcc::Vec3 vec_val;
+    for (std::size_t j = 0u; j < vals.size(); ++j) {
+      vec_val[j] = vals[j][k];
+    }
+
+    const jcc::Vec3 coeffs = pmat_inv * vec_val;
+    result[k] = coeffs[1];
+  }
+  return result;
+}
+
 // Compute a finite-differenced velocity
 void plot_differentiated_velocity(
     viewer::Plot& plot,
@@ -168,24 +191,31 @@ void plot_differentiated_velocity(
   speeds_plot.subplots["velocity_norm"].line_width = line_width;
   speeds_plot.subplots["velocity_norm"].dotted = false;
 
-  for (std::size_t k = 1u; k < fiducial_meas.size(); ++k) {
+  for (std::size_t k = 1u; k < fiducial_meas.size() - 1; ++k) {
+    const auto& meas_next = fiducial_meas.at(k + 1);
     const auto& meas = fiducial_meas.at(k);
     const auto& meas_prev = fiducial_meas.at(k - 1);
 
     const double time_offset = estimation::to_seconds(meas_prev.second - first_t);
     const double dt = estimation::to_seconds(meas.second - meas_prev.second);
 
+    const SE3 world_from_camera_next = meas_next.first.T_fiducial_from_camera;
     const SE3 world_from_camera_cur = meas.first.T_fiducial_from_camera;
     const SE3 world_from_camera_prev = meas_prev.first.T_fiducial_from_camera;
 
-    const jcc::Vec3 dpos = world_from_camera_cur.translation() - world_from_camera_prev.translation();
-    const jcc::Vec3 dpos_dt = dpos / dt;
+    // const jcc::Vec3 dpos = world_from_camera_cur.translation() - world_from_camera_prev.translation();
+    // const jcc::Vec3 dpos_dt = dpos / dt;
+    const jcc::Vec3 dpos_dt =
+        smooth_central_diff({world_from_camera_prev.translation(), world_from_camera_cur.translation(),
+                             world_from_camera_next.translation()},
+                            {meas_prev.second, meas.second, meas_next.second});
+    // const jcc::Vec3 dpos_dt = world_from_camera_cur.translation();
 
     speeds_plot.subplots["velocity_x"].points.push_back({time_offset, dpos_dt.x()});
     speeds_plot.subplots["velocity_y"].points.push_back({time_offset, dpos_dt.y()});
     speeds_plot.subplots["velocity_z"].points.push_back({time_offset, dpos_dt.z()});
 
-    speeds_plot.subplots["velocity_norm"].points.push_back({time_offset, dpos_dt.norm()});
+    speeds_plot.subplots["velocity_norm"].points.push_back({time_offset, dt});
   }
 
   plot.add_line_plot(speeds_plot);
@@ -404,7 +434,7 @@ class Calibrator {
         continue;
       }
 
-      jf_.measure_imu({compensated_accel}, t);
+      // jf_.measure_imu({compensated_accel}, t);
       jet_opt_.measure_imu({compensated_accel}, t);
 
       // jf_.measure_imu(accel_meas.first, t);
@@ -437,7 +467,6 @@ class Calibrator {
 
       const auto t = jf_.state().time_of_validity;
 
-      std::cout << "dt: " << estimation::to_seconds(t - prev_time) << std::endl;
       prev_time = t;
 
       const SE3 T_world_from_body = get_world_from_body(state);
@@ -462,32 +491,31 @@ class Calibrator {
       // const jcc::Vec3 accel_g_subtracted_vehicle = meas_accel_imu_t - g_vehicle_frame;
       const jcc::Vec3 g_imu = imu_from_vehicle.so3() * T_world_from_body.so3().inverse() * g_world;
 
-      std::cout << "\n" << std::endl;
-      std::cout << "Accelerometer: " << std::endl;
-      std::cout << "\tg_imu:      " << g_imu.transpose() << std::endl;
-      std::cout << "\tmeas accel: " << meas_accel_imu_t.transpose() << std::endl;
-      std::cout << "\texp accel:  " << expected_accel_imu.transpose() << std::endl;
+      constexpr bool PRINT_STATE_VALUES = false;
+      if (PRINT_STATE_VALUES) {
+        std::cout << "\n" << std::endl;
+        std::cout << "Accelerometer: " << std::endl;
+        std::cout << "\tg_imu:      " << g_imu.transpose() << std::endl;
+        std::cout << "\tmeas accel: " << meas_accel_imu_t.transpose() << std::endl;
+        std::cout << "\texp accel:  " << expected_accel_imu.transpose() << std::endl;
 
-      std::cout << "Specific Force:" << std::endl;
-      std::cout << "\tmeas sp f: " << (meas_accel_imu_t - g_imu).transpose() << std::endl;
-      std::cout << "\texp sp f: " << (expected_accel_imu - g_imu).transpose() << std::endl;
+        std::cout << "Specific Force:" << std::endl;
+        std::cout << "\tmeas sp f: " << (meas_accel_imu_t - g_imu).transpose() << std::endl;
+        std::cout << "\texp sp f: " << (expected_accel_imu - g_imu).transpose() << std::endl;
 
-      std::cout << "States:       " << std::endl;
-      std::cout << "\taccel_bias: " << state.accel_bias.transpose() << std::endl;
-      std::cout << "\tgyro_bias: " << state.gyro_bias.transpose() << std::endl;
-      std::cout << "\teps_ddot:   " << state.eps_ddot.transpose() << std::endl;
-      std::cout << "\teps_dot:    " << state.eps_dot.transpose() << std::endl;
-      std::cout << "\tx:          " << T_world_from_body.translation().transpose() << std::endl;
+        std::cout << "States:       " << std::endl;
+        std::cout << "\taccel_bias: " << state.accel_bias.transpose() << std::endl;
+        std::cout << "\tgyro_bias: " << state.gyro_bias.transpose() << std::endl;
+        std::cout << "\teps_ddot:   " << state.eps_ddot.transpose() << std::endl;
+        std::cout << "\teps_dot:    " << state.eps_dot.transpose() << std::endl;
+        std::cout << "\tx:          " << T_world_from_body.translation().transpose() << std::endl;
 
-      std::cout << "Gyroscope:    " << std::endl;
-      std::cout << "\tmeas gyro:  " << meas_gyro_imu_t.transpose() << std::endl;
-      std::cout << "\texp gyro:   " << expected_gyro_imu.transpose() << std::endl;
-
+        std::cout << "Gyroscope:    " << std::endl;
+        std::cout << "\tmeas gyro:  " << meas_gyro_imu_t.transpose() << std::endl;
+        std::cout << "\texp gyro:   " << expected_gyro_imu.transpose() << std::endl;
+      }
       geo_->add_axes({T_world_from_body, 0.01, 1.0, false});
 
-      // const Eigen::LLT<MatNd<3, 3>> P_llt(
-      // cov.block<3, 3>(ejf::StateDelta::x_world_error_ind, ejf::StateDelta::x_world_error_ind));
-      // geo_->add_ellipsoid({geometry::shapes::Ellipse{P_llt.matrixL(), T_world_from_body.translation()}});
       const SE3 T_imu_from_vehicle = jf_.parameters().T_imu_from_vehicle;
 
       const jcc::Vec3 velocity_world_frame = state.eps_dot.head<3>();
@@ -508,13 +536,16 @@ class Calibrator {
       timestep_geo->add_line({T_world_from_body.translation(), T_world_from_body.translation() + meas_accel_world,
                               jcc::Vec4(0.3, 0.7, 0.7, 0.8)});
 
-      jcc::Vec3 prev_pos = T_world_from_body.translation();
-      for (double added_t = 0.01; added_t < 0.2; added_t += 0.01) {
-        const auto predicted_state = jf_.predict(t + estimation::to_duration(added_t));
-        const jcc::Vec3 pos = get_world_from_body(predicted_state).translation();
-        timestep_geo->add_line({prev_pos, pos});
-        timestep_geo->add_sphere({pos, 0.001});
-        prev_pos = pos;
+      constexpr bool PLOT_PREDICTIONS = false;
+      if (PLOT_PREDICTIONS) {
+        jcc::Vec3 prev_pos = T_world_from_body.translation();
+        for (double added_t = 0.01; added_t < 0.2; added_t += 0.01) {
+          const auto predicted_state = jf_.predict(t + estimation::to_duration(added_t));
+          const jcc::Vec3 pos = get_world_from_body(predicted_state).translation();
+          timestep_geo->add_line({prev_pos, pos});
+          timestep_geo->add_sphere({pos, 0.001});
+          prev_pos = pos;
+        }
       }
 
       // geo_->flush();
@@ -526,7 +557,7 @@ class Calibrator {
 
     // plot_prim->add_line_plot
     constexpr bool FROM_KF = true;
-    plot_velocities(*plot_prim, est_states, fiducial_meas_.front().second, FROM_KF);
+    // plot_velocities(*plot_prim, est_states, fiducial_meas_.front().second, FROM_KF);
     plot_differentiated_velocity(*plot_prim, fiducial_meas_, fiducial_meas_.front().second);
 
     view->spin_until_step();
