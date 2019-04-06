@@ -133,12 +133,16 @@ void plot_velocities(viewer::Plot& plot,
   for (const auto& x : states) {
     const double dt = estimation::to_seconds(x.time_of_validity - first_t);
 
-    speeds_plot.subplots["opt_est_dot_x"].points.push_back({dt, x.x.eps_dot.tail<3>().x()});
-    speeds_plot.subplots["opt_est_dot_y"].points.push_back({dt, x.x.eps_dot.tail<3>().y()});
-    speeds_plot.subplots["opt_est_dot_z"].points.push_back({dt, x.x.eps_dot.tail<3>().z()});
+    speeds_plot.subplots["opt_est_dot_x"].points.push_back({dt, x.x.eps_dot.head<3>().x()});
+    speeds_plot.subplots["opt_est_dot_y"].points.push_back({dt, x.x.eps_dot.head<3>().y()});
+    speeds_plot.subplots["opt_est_dot_z"].points.push_back({dt, x.x.eps_dot.head<3>().z()});
+
+    // speeds_plot.subplots["opt_est_dot_x"].points.push_back({dt, x.x.R_world_from_body.log().x()});
+    // speeds_plot.subplots["opt_est_dot_y"].points.push_back({dt, x.x.R_world_from_body.log().y()});
+    // speeds_plot.subplots["opt_est_dot_z"].points.push_back({dt, x.x.R_world_from_body.log().z()});
 
     const double mul = dt < 1.5 ? 0.0 : 1.0;
-    speeds_plot.subplots["opt_est_dot_norm"].points.push_back({dt, mul * x.x.eps_dot.tail<3>().norm()});
+    speeds_plot.subplots["opt_est_dot_norm"].points.push_back({dt, mul * x.x.eps_dot.head<3>().norm()});
   }
 
   plot.add_line_plot(speeds_plot);
@@ -434,14 +438,14 @@ class Calibrator {
         continue;
       }
 
-      // jf_.measure_imu({compensated_accel}, t);
-      // jet_opt_.measure_imu({compensated_accel}, t);
+      jf_.measure_imu({compensated_accel}, t);
+      jet_opt_.measure_imu({compensated_accel}, t);
 
       // jf_.measure_imu(accel_meas.first, t);
       // jet_opt_.measure_imu(accel_meas.first, t);
 
-      jf_.measure_gyro(gyro_meas.first, t);
-      jet_opt_.measure_gyro(gyro_meas.first, t);
+      jf_.measure_gyro(gyro_meas.first, t + estimation::to_duration(1e-5));
+      jet_opt_.measure_gyro(gyro_meas.first, t + estimation::to_duration(1e-5));
     }
 
     accels_plot.subplots["true_accel_x"].color = jcc::Vec4(1.0, 0.0, 0.0, 0.8);
