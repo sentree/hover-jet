@@ -634,6 +634,50 @@ class Calibrator {
   std::shared_ptr<viewer::SimpleGeometry> geo_;
 };
 
+class Imager {
+ public:
+  void add_image(const cv::Mat& image) {
+    cv::Mat image_gray;
+    cv::cvtColor(image, image_gray, cv::COLOR_BGR2GRAY);
+
+    cv::Mat image_gray_float;
+    { image_gray.convertTo(image_gray_float, CV_32FC1); }
+
+    double max_val;
+    {
+      double min_val;
+      cv::Point min_loc;
+      cv::Point max_loc;
+      cv::minMaxLoc(image_gray_float, &min_val, &max_val, &min_loc, &max_loc);
+    }
+
+    images_.push_back(image_gray_float / max_val);
+    while (images_.size() > 2u) {
+      images_.pop_front();
+    }
+  }
+
+  cv::Mat make_image() const {
+    cv::Mat final_image = images_.front().clone();
+    for (std::size_t i = 1u; i < images_.size(); ++i) {
+      final_image += images_[i];
+    }
+
+    double max_val;
+    {
+      double min_val;
+      cv::Point min_loc;
+      cv::Point max_loc;
+      cv::minMaxLoc(final_image, &min_val, &max_val, &min_loc, &max_loc);
+    }
+
+    return final_image / max_val;
+  }
+
+ private:
+  std::deque<cv::Mat> images_;
+};
+
 void go() {
   setup();
   const auto view = viewer::get_window3d("Filter Debug");
@@ -656,6 +700,8 @@ void go() {
   constexpr bool USE_CAMERA_IMAGES = false;
   constexpr bool USE_FIDUCIAL_DETECTIONS = true;
 
+  Imager imager;
+
   int imu_ct = 0;
   for (int k = 0; k < 3000; ++k) {
     {
@@ -676,7 +722,14 @@ void go() {
       CameraImageMessage cam_msg;
       if (reader.read_next_message("camera_image_channel", cam_msg)) {
         const auto image = get_image_mat(cam_msg);
+        imager.add_image(image);
 
+        const cv::Mat refined_image = imager.make_image();
+        cv::imshow("Image", refined_image);
+
+        cv::waitKey(0);
+
+        /*
         const auto result = detect_board(image);
         if (result) {
           const SE3 world_from_camera = *result;
@@ -694,6 +747,7 @@ void go() {
 
           calibrator.add_fiducial(cam_msg.timestamp, world_from_camera);
         }
+        */
       }
     }
 
@@ -715,8 +769,6 @@ void go() {
         last_world_from_camera = world_from_camera;
       }
     }
-    // cv::imshow("Image", image);
-    // cv::waitKey(0);
   }
 
   geo->flush();
