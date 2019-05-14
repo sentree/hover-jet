@@ -1,4 +1,5 @@
 logged_channels:
+  - bq_state
   - force_sensor_output_channel
   - servo_command_channel
   - turbine_ignition
