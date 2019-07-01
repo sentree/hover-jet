@@ -65,7 +65,7 @@ RUN apt install freeglut3-dev -y
 #
 
 RUN apt install -y xvfb
-ADD support/xvfb.init /etc/init.d/xvfb
+COPY ./image_files/etc/init.d/xvfb.init /etc/init.d/xvfb
 RUN chmod +x /etc/init.d/xvfb
 RUN update-rc.d xvfb defaults
 CMD (service xvfb start; export DISPLAY=:10;)
