@@ -1,10 +1,49 @@
-FROM ubuntu:bionic
+#==================================================================#
+# Base: Define a few important configurations for all later images #
+#==================================================================#
+
+FROM ubuntu:bionic AS base
+
+# Set up a noninteractive environment for APT
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Update the distribution packages in the image and install critical utilities
+RUN apt-get update \
+  && apt-get dist-upgrade -y \
+  && apt-get autoremove -y --purge \
+  && apt-get install --no-install-recommends -y \
+    ca-certificates \
+    locales \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# Generate the en_US.UTF-8 locale and make it the default
+RUN locale-gen en_US.UTF-8 \
+  && update-locale \
+    LANG=en_US.UTF-8 \
+    LANGUAGE=en_US:en \
+    LC_ALL=en_US.UTF-8
+
+# Force the locale environment variables to en_US.UTF-8
+# This is what Ubuntu Docker upstream recommends for UTF-8 support
+ENV LANG=en_US.UTF-8 \
+  LANGUAGE=en_US:en \
+  LC_ALL=en_US.UTF-8
+
+
+#================================================================#
+# Jet: A temporary catch-all stage for the rest of the jet image #
+#================================================================#
+
+FROM base AS jet
+
+# Since this stage persists APT list files, update them at the start
+RUN apt-get update
 
 #
 # Install devtools
 #
 
-RUN apt-get update
 RUN apt-get install software-properties-common -y
 RUN add-apt-repository ppa:ubuntu-toolchain-r/test -y
 RUN apt-get install build-essential -y
@@ -26,7 +65,7 @@ RUN apt-get install gdb -y
 RUN apt-get install libxmu-dev libxi-dev -y
 RUN apt-get install libassimp-dev -y
 RUN apt-get install libyaml-cpp-dev -y
-RUN DEBIAN_FRONTEND=noninteractive apt-get install -y tzdata
+RUN apt-get install tzdata -y
 RUN apt-get install libssl-dev -y
 RUN apt-get install libreadline6-dev -y
 RUN apt-get install libserial-dev -y
@@ -54,7 +93,6 @@ RUN apt-get install python-tk -y
 #
 # Gl Viewer Support
 #
-RUN apt-get update
 RUN apt-get install xorg-dev libglu1-mesa-dev -y
 RUN apt-get install libglfw3 libglfw3-dev libglew-dev -y
 RUN apt-get install freeglut3-dev -y
