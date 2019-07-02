@@ -31,11 +31,31 @@ ENV LANG=en_US.UTF-8 \
   LC_ALL=en_US.UTF-8
 
 
+#=========================================================#
+# Toolchain: Install up to date build tools and utilities #
+#=========================================================#
+
+FROM base AS toolchain
+
+# Copy in the APT sources list and GPG public key for the test toolchain PPA
+COPY image_files/etc/apt/ /etc/apt/
+
+# Install packages needed to fetch, build, and install the project
+RUN apt-get update \
+  && apt-get install --no-install-recommends -y \
+    build-essential \
+    cmake \
+    curl \
+    git \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+
 #================================================================#
 # Jet: A temporary catch-all stage for the rest of the jet image #
 #================================================================#
 
-FROM base AS jet
+FROM toolchain AS jet
 
 # Since this stage persists APT list files, update them at the start
 RUN apt-get update
@@ -43,14 +63,6 @@ RUN apt-get update
 #
 # Install devtools
 #
-
-RUN apt-get install software-properties-common -y
-RUN add-apt-repository ppa:ubuntu-toolchain-r/test -y
-RUN apt-get install build-essential -y
-RUN apt-get update
-
-RUN apt-get install git -y
-RUN apt-get install cmake gcc-7 g++-7 -y
 
 RUN apt-get install libgtest-dev -y
 RUN cd /usr/src/gtest; cmake CMakeLists.txt; make; cp *.a /usr/lib
