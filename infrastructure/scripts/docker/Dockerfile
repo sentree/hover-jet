@@ -81,6 +81,33 @@ RUN cd /opt/libserialport/ \
   && make -j 3
 
 
+#===================================================#
+# CrossGuid: Pull and compile the crossguid library #
+#===================================================#
+
+FROM toolchain AS crossguid
+
+# Install the additional system build dependencies for crossguid
+RUN apt-get update \
+  && apt-get install --no-install-recommends -y \
+    uuid-dev \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# Set the commit of crossguid to use since it doesn't have recent releases
+ENV CROSSGUID_COMMIT="0f2753174c914bc561504b14c963d179283fe829"
+
+# Clone the crossguid repository and check out the selected commit
+RUN git clone https://github.com/graeme-hill/crossguid.git /opt/crossguid/ \
+  && cd /opt/crossguid/ \
+  && git checkout -b commit-"${CROSSGUID_COMMIT}" "${CROSSGUID_COMMIT}"
+
+# Build the library with a job count of three to stop the ODROID from stalling
+RUN cd /opt/crossguid/ \
+  && cmake -B./build/ -H./ \
+  && make -j 3 -C ./build/
+
+
 #================================================================#
 # Jet: A temporary catch-all stage for the rest of the jet image #
 #================================================================#
@@ -171,10 +198,11 @@ RUN rm -r paho.mqtt.cpp
 #
 # GUID library
 #
-
-RUN apt-get install uuid-dev -y
-RUN git clone https://github.com/graeme-hill/crossguid.git; cd crossguid; git reset --hard 0f2753174c914bc561504b14c963d179283fe829; mkdir build; cd build; cmake ..; make install
-RUN rm -r crossguid
+RUN apt-get install --no-install-recommends -y libuuid1
+COPY --from=crossguid /opt/crossguid/build/ /opt/crossguid/build/
+RUN make install -C /opt/crossguid/build/ \
+  && rm -rf /opt/crossguid/ \
+  && ldconfig
 
 
 #
