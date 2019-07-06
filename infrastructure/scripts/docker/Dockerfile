@@ -51,6 +51,36 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 
+#====================================================#
+# Serial: Pull and compile the libserialport library #
+#====================================================#
+
+FROM toolchain AS serial
+
+# Install the additional system build dependencies for libserialport
+RUN apt-get update \
+  && apt-get install --no-install-recommends -y \
+    autoconf \
+    automake \
+    libtool \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# Set the commit of libserialport to use since it doesn't have recent releases
+ENV LIBSERIALPORT_COMMIT="a84ffb537270666b652f70e4f836e88cd331d683"
+
+# Clone the libserialport repository and check out the selected commit
+RUN git clone https://github.com/martinling/libserialport.git /opt/libserialport/ \
+  && cd /opt/libserialport/ \
+  && git checkout -b commit-"${LIBSERIALPORT_COMMIT}" "${LIBSERIALPORT_COMMIT}"
+
+# Build the library with a job count of three to stop the ODROID from stalling
+RUN cd /opt/libserialport/ \
+  && ./autogen.sh \
+  && ./configure \
+  && make -j 3
+
+
 #================================================================#
 # Jet: A temporary catch-all stage for the rest of the jet image #
 #================================================================#
@@ -164,10 +194,10 @@ RUN apt-get install fswebcam eog -y
 #
 # Adding serial library
 #
-RUN apt-get install -y autoconf libtool
-RUN git clone https://github.com/martinling/libserialport.git; cd libserialport; ./autogen.sh; ./configure; make; make install;
-RUN rm -r libserialport
-RUN ldconfig
+COPY --from=serial /opt/libserialport/ /opt/libserialport/
+RUN make install -C /opt/libserialport/ \
+  && rm -rf /opt/libserialport/ \
+  && ldconfig
 
 
 #
