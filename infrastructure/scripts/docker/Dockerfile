@@ -145,6 +145,35 @@ RUN cd /opt/paho.mqtt.cpp/ \
   && cmake -B./build/ -H./
 
 
+#===============================================#
+# OpenCV: Pulls and compiles the OpenCV library #
+#===============================================#
+
+FROM toolchain AS opencv
+
+# Install the additional system build dependencies for opencv
+RUN apt-get update \
+  && apt-get install --no-install-recommends -y \
+    libgtk2.0-dev \
+    libavcodec-dev \
+    libavformat-dev \
+    libswscale-dev \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# Set the release of opencv and opencv_contrib to use
+ENV OPENCV_RELEASE="4.0.1"
+
+# Fetch and extract the selected release of opencv and opencv_contrib
+RUN curl -fsSL https://github.com/opencv/opencv_contrib/archive/"$OPENCV_RELEASE".tar.gz | tar -xpzC /opt/ \
+  && curl -fsSL https://github.com/opencv/opencv/archive/"$OPENCV_RELEASE".tar.gz | tar -xpzC /opt/
+
+# Build the library with a job count of three to stop the ODROID from stalling
+RUN cd /opt/opencv-"$OPENCV_RELEASE"/ \
+  && cmake -B./build/ -H./ -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local \
+    -DOPENCV_EXTRA_MODULES_PATH=/opt/opencv_contrib-"$OPENCV_RELEASE"/modules/ \
+  && make -j 3 -C ./build/
+
 #================================================================#
 # Jet: A temporary catch-all stage for the rest of the jet image #
 #================================================================#
@@ -272,10 +301,8 @@ RUN make install -C /opt/libserialport/ \
 # Opencv
 #
 
-RUN cd /; apt-get install libgtk2.0-dev libavcodec-dev libavformat-dev libswscale-dev -y
-RUN git clone https://github.com/opencv/opencv_contrib.git --depth=1
-RUN cd opencv_contrib; CONTRIB_PATH=$PWD; git reset --hard a17185c6dc7aa554591ad1be38923232472f8001; cd ..; git clone https://github.com/opencv/opencv.git --depth=1; cd opencv; git reset --hard e2dbf054ac5c54bd328f648d9d6146c09dfd5484; mkdir build; cd build; cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local -DOPENCV_EXTRA_MODULES_PATH=$CONTRIB_PATH/modules ..; make -j3; make install
-RUN rm -rf opencv
-RUN rm -rf opencv_contrib
-
-RUN ldconfig -p
+RUN apt-get install --no-install-recommends -y libgtk2.0 libavcodec57 libavformat57 libswscale4
+COPY --from=opencv /opt/opencv/build/ /opt/opencv/build/
+RUN make install -C /opt/opencv/build/ \
+  && rm -rf /opt/opencv/ \
+  && ldconfig
