@@ -108,6 +108,43 @@ RUN cd /opt/crossguid/ \
   && make -j 3 -C ./build/
 
 
+#=========================================================================#
+# MQTT: Pulls and compiles the Eclipse Paho MQTT C and C++ client library #
+#=========================================================================#
+
+FROM toolchain AS mqtt
+
+# Install the additional system build dependencies for paho.mqtt.c
+RUN apt-get update \
+  && apt-get install --no-install-recommends -y \
+    libssl-dev \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# Set the release of paho.mqtt.c to use
+ENV PAHO_MQTT_C_RELEASE="1.2.1"
+
+# Fetch and extract the selected release of paho.mqtt.c
+RUN curl -fsSL https://github.com/eclipse/paho.mqtt.c/archive/"v${PAHO_MQTT_C_RELEASE}".tar.gz | tar -xpzC /opt/ \
+  && mv /opt/paho.mqtt.c-"${PAHO_MQTT_C_RELEASE}"/ /opt/paho.mqtt.c/
+
+# Build and install paho.mqtt.c so shared objects are found in the right place
+RUN cd /opt/paho.mqtt.c/ \
+  && cmake -B./build/ -H./ -DPAHO_WITH_SSL=ON \
+  && cmake --build ./build/ --target install
+
+# Set the release of paho.mqtt.cpp to use
+ENV PAHO_MQTT_CPP_RELEASE="1.0.1"
+
+# Fetch and extract the selected release of paho.mqtt.cpp
+RUN curl -fsSL https://github.com/eclipse/paho.mqtt.cpp/archive/"v${PAHO_MQTT_CPP_RELEASE}".tar.gz | tar -xpzC /opt/ \
+  && mv /opt/paho.mqtt.cpp-"${PAHO_MQTT_CPP_RELEASE}"/ /opt/paho.mqtt.cpp/
+
+# Build paho.mqtt.cpp, but do not install it in this stage
+RUN cd /opt/paho.mqtt.cpp/ \
+  && cmake -B./build/ -H./
+
+
 #================================================================#
 # Jet: A temporary catch-all stage for the rest of the jet image #
 #================================================================#
@@ -187,12 +224,15 @@ RUN apt-get install mosquitto mosquitto-clients -y
 #
 # paho.mqtt.cpp
 #
-
-RUN apt-get install doxygen graphviz -y
-RUN git clone https://github.com/eclipse/paho.mqtt.c.git; cd paho.mqtt.c; git checkout v1.2.1; cmake -Bbuild -H. -DPAHO_WITH_SSL=ON; cmake --build build/ --target install; ldconfig
-RUN rm -r paho.mqtt.c
-RUN git clone https://github.com/eclipse/paho.mqtt.cpp; cd paho.mqtt.cpp; cmake -Bbuild -H. -DPAHO_BUILD_DOCUMENTATION=TRUE -DPAHO_BUILD_SAMPLES=TRUE; cmake --build build/ --target install
-RUN rm -r paho.mqtt.cpp
+RUN apt-get install --no-install-recommends -y libssl1.1
+COPY --from=mqtt /opt/paho.mqtt.c/build/ /opt/paho.mqtt.c/build/
+RUN cmake --build /opt/paho.mqtt.c/build/ --target install \
+  && rm -rf /opt/paho.mqtt.c/ \
+  && ldconfig
+COPY --from=mqtt /opt/paho.mqtt.cpp/build/ /opt/paho.mqtt.cpp/build/
+RUN cmake --build /opt/paho.mqtt.cpp/build/ --target install \
+  && rm -rf /opt/paho.mqtt.cpp/ \
+  && ldconfig
 
 
 #
